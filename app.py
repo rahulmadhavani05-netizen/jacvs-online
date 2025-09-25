@@ -13,21 +13,16 @@ def process_certificate_ocr(image):
     from the given certificate image using Tesseract OCR.
     """
     try:
-        # Convert image to text using pytesseract
         text = pytesseract.image_to_string(image)
 
-        # Example: Extract fields using keyword searches
         extracted_data = {
             "name": "",
             "roll_no": "",
             "cert_id": ""
         }
 
-        # Process the text line by line
-        lines = text.split("\n")
-        for line in lines:
+        for line in text.split("\n"):
             line_clean = line.strip()
-
             if "Name" in line_clean:
                 extracted_data["name"] = line_clean.split(":")[-1].strip()
             elif "Roll" in line_clean or "Roll No" in line_clean:
@@ -35,7 +30,6 @@ def process_certificate_ocr(image):
             elif "Certificate ID" in line_clean or "Cert ID" in line_clean:
                 extracted_data["cert_id"] = line_clean.split(":")[-1].strip()
 
-        # Confidence score is mocked here
         return {
             "extracted_data": extracted_data,
             "ocr_confidence": 85,  # Mock confidence
@@ -67,70 +61,88 @@ with st.sidebar:
 uploaded_file = st.file_uploader("Choose a file", type=['pdf', 'jpg', 'jpeg', 'png'])
 
 if uploaded_file is not None:
-    # If it's a PDF, convert to image
+    # Handle PDF
     if uploaded_file.type == "application/pdf":
-        images = convert_from_bytes(uploaded_file.read())
-        if len(images) > 0:
-            image = images[0]
-        else:
+        images = convert_from_bytes(uploaded_file.read(), poppler_path="/usr/bin")
+        if len(images) == 0:
             st.error("No pages found in PDF.")
             st.stop()
     else:
-        image = Image.open(uploaded_file)
+        images = [Image.open(uploaded_file)]
 
-    # Display uploaded image
-    st.image(image, caption="Uploaded Certificate", use_column_width=True)
+    # Display all pages
+    st.subheader("Uploaded Certificate Pages")
+    for i, image in enumerate(images):
+        st.image(image, caption=f"Page {i+1}", use_column_width=True)
 
-    # Process OCR
-    with st.spinner("🔍 Processing certificate..."):
-        ocr_result = process_certificate_ocr(image)
+    # Process OCR for all pages
+    full_extracted_data = []
+    for i, image in enumerate(images):
+        with st.spinner(f"🔍 Processing page {i+1}..."):
+            ocr_result = process_certificate_ocr(image)
+            full_extracted_data.append(ocr_result)
 
-        # Generate SHA256 hash
-        img_bytes = io.BytesIO()
+    # Combine extracted data from all pages
+    combined_data = {
+        "name": "",
+        "roll_no": "",
+        "cert_id": "",
+        "full_text": ""
+    }
+
+    for page_data in full_extracted_data:
+        extracted = page_data.get("extracted_data", {})
+        for key in ["name", "roll_no", "cert_id"]:
+            if extracted.get(key):
+                combined_data[key] = extracted[key]
+        combined_data["full_text"] += page_data.get("full_text", "") + "\n"
+
+    # Generate hash of all pages
+    img_bytes = io.BytesIO()
+    for image in images:
         image.save(img_bytes, format='PNG')
-        document_hash = hashlib.sha256(img_bytes.getvalue()).hexdigest()
+    document_hash = hashlib.sha256(img_bytes.getvalue()).hexdigest()
 
-        # Mock database for validation
-        MOCK_DB = {
-            'John Doe': {'roll_no': 'RU12345', 'cert_id': 'RU/UG/2023/001'},
-        }
+    # Mock database for validation
+    MOCK_DB = {
+        'John Doe': {'roll_no': 'RU12345', 'cert_id': 'RU/UG/2023/001'},
+    }
 
-        extracted_data = ocr_result.get('extracted_data', {})
-        name = extracted_data.get('name', '').strip()
-        roll_no = extracted_data.get('roll_no', '').strip()
-        cert_id = extracted_data.get('cert_id', '').strip()
+    name = combined_data.get('name', '').strip()
+    roll_no = combined_data.get('roll_no', '').strip()
+    cert_id = combined_data.get('cert_id', '').strip()
 
-        anomalies = []
-        confidence_score = 85
-        status = "Valid"
-        recommendation = "Proceed with verification."
+    anomalies = []
+    confidence_score = 85
+    status = "Valid"
+    recommendation = "Proceed with verification."
 
-        # Verification logic
-        if name in MOCK_DB:
-            if MOCK_DB[name]['roll_no'] != roll_no or MOCK_DB[name]['cert_id'] != cert_id:
-                anomalies.append("Mismatch in Roll No or Certificate ID")
-                status = "Caution"
-                confidence_score = 60
-                recommendation = "Manual review recommended."
-        else:
-            anomalies.append("Name not found in records")
-            status = "Forged"
-            confidence_score = 30
-            recommendation = "Document appears invalid."
+    # Verification logic
+    if name in MOCK_DB:
+        if MOCK_DB[name]['roll_no'] != roll_no or MOCK_DB[name]['cert_id'] != cert_id:
+            anomalies.append("Mismatch in Roll No or Certificate ID")
+            status = "Caution"
+            confidence_score = 60
+            recommendation = "Manual review recommended."
+    else:
+        anomalies.append("Name not found in records")
+        status = "Forged"
+        confidence_score = 30
+        recommendation = "Document appears invalid."
 
-        if ocr_result.get('ocr_confidence', 0) < 70:
-            anomalies.append("Low OCR confidence - blurry image?")
+    if any(page.get('ocr_confidence', 0) < 70 for page in full_extracted_data):
+        anomalies.append("Low OCR confidence - blurry image?")
 
-        # Final result
-        result = {
-            "status": status,
-            "confidence_score": confidence_score,
-            "recommendation": recommendation,
-            "anomalies": anomalies,
-            "extracted_data": extracted_data,
-            "document_hash": document_hash,
-            "full_text": ocr_result.get('full_text', '')
-        }
+    # Final result
+    result = {
+        "status": status,
+        "confidence_score": confidence_score,
+        "recommendation": recommendation,
+        "anomalies": anomalies,
+        "extracted_data": combined_data,
+        "document_hash": document_hash,
+        "full_text": combined_data["full_text"]
+    }
 
     # ---------------- DISPLAY RESULTS ----------------
     col1, col2 = st.columns(2)
@@ -151,7 +163,7 @@ if uploaded_file is not None:
     with col2:
         st.subheader("📄 Extracted Data")
         for key, value in result['extracted_data'].items():
-            if value:
+            if key != "full_text" and value:
                 st.write(f"**{key.replace('_', ' ').title()}:** {value}")
 
         st.write(f"**Document Hash:** {result['document_hash'][:16]}...")  # Show only first 16 chars
@@ -168,3 +180,4 @@ if uploaded_file is not None:
 # Footer
 st.markdown("---")
 st.markdown("Built for **Jharkhand Education** | **Privacy Notice:** No data is stored without consent.")
+
