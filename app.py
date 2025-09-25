@@ -1,146 +1,103 @@
-import streamlit as st
-import pandas as pd
-import random
-import datetime
+// pages/VerifyPage.tsx
+import React, { useState } from 'react';
+import { CertificateUpload } from '../components/CertificateUpload';
+import { VerificationResult } from '../components/VerificationResult';
+import { VerificationResult as VerificationResultType, CertificateData } from '../types';
 
-st.set_page_config(page_title="Jharkhand Degree Verifier", layout="wide")
+export const VerifyPage = () => {
+  const [verificationResult, setVerificationResult] = useState<VerificationResultType | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
 
-# -------------------------
-# Helper Functions
-# -------------------------
+  // Dataset that we can allow uploading or pre-fill with CSV
+  const [dataset, setDataset] = useState<CertificateData[]>([]);
 
-def generate_mock_verification(file_name):
-    status = random.choices(
-        ["Authentic", "Suspicious", "Invalid"], weights=[0.85, 0.10, 0.05], k=1
-    )[0]
-    confidence = round(random.uniform(80, 99.9), 1)
-    anomalies = []
-    if status == "Suspicious":
-        anomalies.append("Mismatch in certificate ID")
-    elif status == "Invalid":
-        anomalies.append("Document tampered")
-    extracted_data = {
-        "Name": "Rajesh Kumar",
-        "Roll Number": "2021CS101",
-        "Certificate ID": "JHARKHAND2021CS101",
-        "Institution": "Ranchi University",
-        "Course": "Bachelor of Computer Science",
-        "Grades": "A+",
-        "Issue Date": "2024-05-15"
-    }
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    return status, confidence, anomalies, extracted_data, timestamp
+  const handleVerification = async (file: File) => {
+    setIsLoading(true);
 
-# -------------------------
-# Sidebar Navigation
-# -------------------------
-st.sidebar.title("Jharkhand Degree Verifier")
-menu = st.sidebar.radio("Go to", ["Home", "Verify Certificate", "Admin Portal", "Institution Portal"])
+    // Simulate OCR extraction
+    const extractedData: Partial<CertificateData> = {
+      name: 'Unknown',
+      rollNumber: 'Unknown',
+      certificateId: 'Unknown',
+      institution: 'Unknown',
+      course: 'Unknown',
+      grades: 'Unknown',
+      issueDate: new Date().toISOString()
+    };
 
-# -------------------------
-# Home Page
-# -------------------------
-if menu == "Home":
-    st.markdown("# 🛡️ Secure Certificate Verification")
-    st.markdown(
-        "Protect academic integrity with our advanced fake degree detection system. "
-        "Fast, reliable verification for employers, institutions, and government bodies."
-    )
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("✅ Verify Certificate"):
-            menu = "Verify Certificate"
-    with col2:
-        if st.button("🏫 Institution Login"):
-            menu = "Institution Portal"
+    // Check dataset for match
+    const match = dataset.find(d => d.certificateId === extractedData.certificateId);
 
-    st.markdown("### Features")
-    st.markdown("**AI-Powered Verification:** Advanced OCR and machine learning algorithms to detect tampered documents and forged signatures")
-    st.markdown("**Blockchain Security:** Digital watermarking and cryptographic validation for newly issued certificates")
-    st.markdown("**Real-time Monitoring:** Comprehensive admin dashboard with fraud detection analytics and alert systems")
-    
-    st.markdown("### Trusted by Institutions")
-    st.metric("Universities", "50+")
-    st.metric("Colleges", "500+")
-    st.metric("Certificates Verified", "1M+")
-    st.metric("Accuracy Rate", "99.8%")
+    const result: VerificationResultType = match
+      ? {
+          status: 'authentic',
+          extractedData: match,
+          anomalies: [],
+          confidence: 98.5,
+          timestamp: new Date().toISOString()
+        }
+      : {
+          status: 'invalid',
+          extractedData: extractedData as CertificateData,
+          anomalies: ['Data Not Available in our database'],
+          confidence: 0,
+          timestamp: new Date().toISOString()
+        };
 
-# -------------------------
-# Verify Certificate Page
-# -------------------------
-elif menu == "Verify Certificate":
-    st.markdown("# 🔍 Verify Certificate Authenticity")
-    uploaded_file = st.file_uploader("Upload a certificate (PDF or image)", type=["pdf","png","jpg","jpeg"])
-    
-    if uploaded_file:
-        with st.spinner("Analyzing document..."):
-            status, confidence, anomalies, data, timestamp = generate_mock_verification(uploaded_file.name)
-        st.success(f"✅ Verification Complete: **{status}**")
-        st.info(f"Confidence: {confidence}%  •  Timestamp: {timestamp}")
+    setTimeout(() => {
+      setVerificationResult(result);
+      setIsLoading(false);
+    }, 1500);
+  };
 
-        st.markdown("### Extracted Data")
-        st.table(data)
+  const handleDatasetUpload = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = e.target?.result as string;
+        const rows = text.split('\n').filter(Boolean);
+        const headers = rows[0].split(',');
+        const data: CertificateData[] = rows.slice(1).map(row => {
+          const values = row.split(',');
+          const obj: any = {};
+          headers.forEach((h, i) => obj[h.trim()] = values[i]?.trim() || '');
+          return obj as CertificateData;
+        });
+        setDataset(data);
+        alert('Dataset loaded successfully!');
+      } catch (err) {
+        alert('Failed to load dataset!');
+      }
+    };
+    reader.readAsText(file);
+  };
 
-        if anomalies:
-            st.warning("⚠️ Detected Anomalies")
-            for a in anomalies:
-                st.write(f"- {a}")
+  return (
+    <div className="max-w-4xl mx-auto space-y-8">
+      <div className="text-center mb-4">
+        <h1 className="text-3xl font-bold text-gray-800 mb-2">Verify Certificate Authenticity</h1>
+        <p className="text-gray-600">Upload a certificate document to check against our database</p>
+      </div>
 
-        st.download_button(
-            "📄 Download Verification Report",
-            data=str({**data, "status": status, "confidence": confidence, "anomalies": anomalies, "timestamp": timestamp}),
-            file_name=f"verification_report_{data['Roll Number']}.txt"
-        )
+      {/* Dataset Upload */}
+      <div className="bg-gray-50 p-6 rounded-xl shadow-md mb-8 text-center">
+        <h2 className="font-semibold text-gray-800 mb-2">Upload Dataset (CSV)</h2>
+        <input
+          type="file"
+          accept=".csv"
+          onChange={e => e.target.files && handleDatasetUpload(e.target.files[0])}
+          className="border px-4 py-2 rounded-lg"
+        />
+        <p className="text-gray-500 text-sm mt-1">CSV columns: name,rollNumber,certificateId,institution,issueDate,course,grades</p>
+      </div>
 
-# -------------------------
-# Admin Portal
-# -------------------------
-elif menu == "Admin Portal":
-    st.markdown("# 🛠️ Admin Dashboard")
-    username = st.text_input("Username")
-    password = st.text_input("Password", type="password")
-    if st.button("Sign In"):
-        if username == "admin" and password == "admin123":
-            st.success("✅ Logged in successfully")
-            
-            st.markdown("### Overview")
-            col1, col2, col3, col4 = st.columns(4)
-            col1.metric("Total Verifications", "12,457")
-            col2.metric("Authentic", "11,823")
-            col3.metric("Suspicious", "489")
-            col4.metric("Invalid", "145")
+      <CertificateUpload onFileUpload={handleVerification} isLoading={isLoading} />
 
-            st.markdown("### Top Institutions")
-            st.table(pd.DataFrame([
-                {"Institution": "Ranchi University", "Verifications": 4567},
-                {"Institution": "BIT Mesra", "Verifications": 3124},
-                {"Institution": "Jharkhand Technical University", "Verifications": 1987},
-            ]))
-        else:
-            st.error("❌ Invalid credentials")
-
-# -------------------------
-# Institution Portal
-# -------------------------
-elif menu == "Institution Portal":
-    st.markdown("# 🏫 Institution Portal")
-    institution_id = st.text_input("Institution ID")
-    password = st.text_input("Password", type="password")
-    if st.button("Sign In"):
-        st.success("✅ Logged in successfully")
-
-        st.markdown("### Bulk Certificate Upload")
-        uploaded_csv = st.file_uploader("Upload CSV file", type=["csv"])
-        if uploaded_csv:
-            df = pd.read_csv(uploaded_csv)
-            st.success(f"Uploaded {len(df)} records")
-            st.dataframe(df)
-            st.info("All data will be encrypted and secured")
-
-        st.markdown("### Records")
-        st.table(pd.DataFrame([{
-            "Name": "Amit Kumar",
-            "Roll Number": "2021CS101",
-            "Certificate ID": "JHARKHAND2021CS101",
-            "Status": "Verified"
-        }]))
+      {verificationResult && (
+        <div className="mt-8">
+          <VerificationResult result={verificationResult} />
+        </div>
+      )}
+    </div>
+  );
+};
