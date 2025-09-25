@@ -5,6 +5,7 @@ import io
 import pytesseract
 import hashlib
 from pdf2image import convert_from_bytes
+import pandas as pd
 
 # ---------------- OCR FUNCTION ----------------
 def process_certificate_ocr(image):
@@ -48,17 +49,32 @@ def process_certificate_ocr(image):
 st.set_page_config(page_title="JACVS Verifier", layout="wide")
 
 st.title("🛡️ JACVS - Jharkhand Academic Credential Verification System")
-st.markdown("Upload a certificate (PDF/JPG/PNG) for instant authenticity check.")
+st.markdown("Upload a certificate (PDF/JPG/PNG) and a CSV file for verification.")
 
 # Sidebar Instructions
 with st.sidebar:
     st.header("How to Use")
     st.write("- Ensure the certificate is scanned clearly.")
     st.write("- Supported formats: PDF, JPG, JPEG, PNG")
+    st.write("- Upload a CSV file with columns: name, roll_no, cert_id")
     st.write("- For institutions: Contact admin for bulk verification tools.")
 
-# File upload
-uploaded_file = st.file_uploader("Choose a file", type=['pdf', 'jpg', 'jpeg', 'png'])
+# ---------------- CSV FILE UPLOAD ----------------
+csv_file = st.file_uploader("Upload CSV file with student records", type=['csv'])
+records_dict = {}
+if csv_file:
+    try:
+        records_df = pd.read_csv(csv_file)
+        if all(col in records_df.columns for col in ['name','roll_no','cert_id']):
+            records_dict = records_df.set_index('name').T.to_dict('dict')
+            st.success(f"Loaded {len(records_dict)} records from CSV.")
+        else:
+            st.error("CSV must have columns: name, roll_no, cert_id")
+    except Exception as e:
+        st.error(f"Error reading CSV: {e}")
+
+# ---------------- CERTIFICATE UPLOAD ----------------
+uploaded_file = st.file_uploader("Choose a certificate file", type=['pdf', 'jpg', 'jpeg', 'png'])
 
 if uploaded_file is not None:
     # Handle PDF
@@ -103,11 +119,7 @@ if uploaded_file is not None:
         image.save(img_bytes, format='PNG')
     document_hash = hashlib.sha256(img_bytes.getvalue()).hexdigest()
 
-    # Mock database for validation
-    MOCK_DB = {
-        'John Doe': {'roll_no': 'RU12345', 'cert_id': 'RU/UG/2023/001'},
-    }
-
+    # ---------------- VERIFICATION LOGIC ----------------
     name = combined_data.get('name', '').strip()
     roll_no = combined_data.get('roll_no', '').strip()
     cert_id = combined_data.get('cert_id', '').strip()
@@ -117,18 +129,20 @@ if uploaded_file is not None:
     status = "Valid"
     recommendation = "Proceed with verification."
 
-    # Verification logic
-    if name in MOCK_DB:
-        if MOCK_DB[name]['roll_no'] != roll_no or MOCK_DB[name]['cert_id'] != cert_id:
-            anomalies.append("Mismatch in Roll No or Certificate ID")
-            status = "Caution"
-            confidence_score = 60
-            recommendation = "Manual review recommended."
+    if records_dict:
+        if name in records_dict:
+            if records_dict[name]['roll_no'] != roll_no or records_dict[name]['cert_id'] != cert_id:
+                anomalies.append("Mismatch in Roll No or Certificate ID")
+                status = "Caution"
+                confidence_score = 60
+                recommendation = "Manual review recommended."
+        else:
+            anomalies.append("Name not found in records")
+            status = "Forged"
+            confidence_score = 30
+            recommendation = "Document appears invalid."
     else:
-        anomalies.append("Name not found in records")
-        status = "Forged"
-        confidence_score = 30
-        recommendation = "Document appears invalid."
+        st.warning("No CSV records loaded. Verification not performed.")
 
     if any(page.get('ocr_confidence', 0) < 70 for page in full_extracted_data):
         anomalies.append("Low OCR confidence - blurry image?")
@@ -180,4 +194,3 @@ if uploaded_file is not None:
 # Footer
 st.markdown("---")
 st.markdown("Built for **Jharkhand Education** | **Privacy Notice:** No data is stored without consent.")
-
