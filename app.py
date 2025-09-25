@@ -101,3 +101,37 @@ export const VerifyPage = () => {
     </div>
   );
 };
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+
+# Title
+st.title("Certificate Verification")
+
+# Upload Dataset
+st.subheader("Upload Dataset (CSV)")
+dataset_file = st.file_uploader("Upload CSV dataset", type=["csv"])
+if dataset_file:
+    try:
+        df = pd.read_csv(dataset_file)
+        st.success("Dataset loaded successfully!")
+    except Exception as e:
+        st.error(f"Failed to read CSV: {e}")
+
+# Upload Certificate
+st.subheader("Upload Certificate")
+cert_file = st.file_uploader("Upload certificate file (image or PDF)", type=["png", "jpg", "jpeg", "pdf"])
+
+if cert_file and dataset_file:
+    st.info("Processing certificate...")
+    # --- Simulated OCR ---
+    extracted_cert_id = st.text_input("Enter certificate ID for testing (simulate OCR)")
+
+    if extracted_cert_id:
+        # Check dataset
+        match = df[df['certificateId'] == extracted_cert_id]
+        if not match.empty:
+            st.success("Certificate is Authentic ✅")
+            st.write(match.to_dict(orient="records")[0])
+        else:
+            st.warning("Data Not Available ❌")
