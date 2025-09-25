@@ -1,4 +1,4 @@
-// pages/VerifyPage.tsx
+
 import React, { useState } from 'react';
 import { CertificateUpload } from '../components/CertificateUpload';
 import { VerificationResult } from '../components/VerificationResult';
