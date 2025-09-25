@@ -14,7 +14,7 @@ def process_certificate_ocr(image):
     from the given certificate image using Tesseract OCR.
     """
     try:
-        text = pytesseract.image_to_string(image)
+        text = pytesseract.image_to_string(image, config="--psm 6")  # Better layout detection
 
         extracted_data = {
             "name": "",
@@ -45,6 +45,10 @@ def process_certificate_ocr(image):
             "error": str(e)
         }
 
+# ---------------- TEXT NORMALIZATION ----------------
+def normalize_text(text):
+    return text.strip().lower().replace(" ", "")
+
 # ---------------- STREAMLIT FRONTEND ----------------
 st.set_page_config(page_title="JACVS Verifier", layout="wide")
 
@@ -66,7 +70,10 @@ if csv_file:
     try:
         records_df = pd.read_csv(csv_file)
         if all(col in records_df.columns for col in ['name','roll_no','cert_id']):
-            records_dict = records_df.set_index('name').T.to_dict('dict')
+            # Normalize all CSV data
+            records_dict = {normalize_text(k): 
+                            {"roll_no": normalize_text(v['roll_no']), "cert_id": normalize_text(v['cert_id'])} 
+                            for k,v in records_df.set_index('name').T.to_dict('dict').items()}
             st.success(f"Loaded {len(records_dict)} records from CSV.")
         else:
             st.error("CSV must have columns: name, roll_no, cert_id")
@@ -113,6 +120,11 @@ if uploaded_file is not None:
                 combined_data[key] = extracted[key]
         combined_data["full_text"] += page_data.get("full_text", "") + "\n"
 
+    # Normalize extracted fields
+    name_norm = normalize_text(combined_data.get("name", ""))
+    roll_norm = normalize_text(combined_data.get("roll_no", ""))
+    cert_norm = normalize_text(combined_data.get("cert_id", ""))
+
     # Generate hash of all pages
     img_bytes = io.BytesIO()
     for image in images:
@@ -120,22 +132,23 @@ if uploaded_file is not None:
     document_hash = hashlib.sha256(img_bytes.getvalue()).hexdigest()
 
     # ---------------- VERIFICATION LOGIC ----------------
-    name = combined_data.get('name', '').strip()
-    roll_no = combined_data.get('roll_no', '').strip()
-    cert_id = combined_data.get('cert_id', '').strip()
-
     anomalies = []
     confidence_score = 85
     status = "Valid"
     recommendation = "Proceed with verification."
 
     if records_dict:
-        if name in records_dict:
-            if records_dict[name]['roll_no'] != roll_no or records_dict[name]['cert_id'] != cert_id:
+        if name_norm in records_dict:
+            if (records_dict[name_norm]['roll_no'] != roll_norm or
+                records_dict[name_norm]['cert_id'] != cert_norm):
                 anomalies.append("Mismatch in Roll No or Certificate ID")
                 status = "Caution"
                 confidence_score = 60
                 recommendation = "Manual review recommended."
+            else:
+                status = "Valid"
+                confidence_score = 85
+                recommendation = "Proceed with verification."
         else:
             anomalies.append("Name not found in records")
             status = "Forged"
